@@ -1,0 +1,2 @@
+
+add_executable(test test_tuple_support.cpp test_named.cpp tuple_support.h named.h)
