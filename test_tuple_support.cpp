@@ -29,6 +29,9 @@ void test_tuple_support()
     auto t3 = std::tuple_concat<std::tuple>("a", t1, "b", a1, "c");
     static_assert(std::tuple_size_v<decltype(t3)> == 8);
     assert(std::get<1>(t3) == 1 && std::get<5>(t3) == 6);  // check the ints should be enough.
+    
+    // Concat with an empty first parameter
+    auto tx = std::tuple_concat(std::tuple<>(), 3);
 
     // Test the arranger functions using t3.
     auto t4 = std::tuple_slice<1, 5>(t3);

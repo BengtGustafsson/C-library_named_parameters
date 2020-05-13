@@ -29,13 +29,13 @@ ones. Unary type preficastes are class templates that adhere to the following co
 This is the form of template that we recognize from the type testing traits in <type_traits>, such as is_reference, is_base_of
 etc.
 
-**NOTE: It is probably not possible to define a concept like this, with a template parameter list after requires. This is to mean
+__NOTE: It is probably not possible to define a concept like this, with a template parameter list after requires. This is to mean
 that if the PRED template is instantiated with any T it must contain a constexpr bool value. Maybe it can be specified using
-_some_ syntax, I'm not proficient enough to see that though.
+_some_ syntax, I'm not proficient enough to see that though.__
 
-**NOTE: It is not possible to use a _template concept_ like this instead of the `template<typename> class PRED` in template
+__NOTE: It is not possible to use a _template concept_ like this instead of the `template<typename> class PRED` in template
 parameter lists. This seems to be an omission as it would be parallel to how type concepts are used for typename template
-parameters. **
+parameters. __
 
 As for naming we already have two forms of these three operations, with disparate names. To recap:
 
@@ -59,14 +59,14 @@ As for naming we already have two forms of these three operations, with disparat
     template<templatee<typename> class... PREDs> struct not_predicate;
 
 
-**NOTE: With class template overloading conjunction and and_predicate could share a name. As the template parameter kinds differ
-there is no risk of confusion. **
+__NOTE: With class template overloading conjunction and and_predicate could share a name. As the template parameter kinds differ
+there is no risk of confusion. __
 
-**NOTE: Alternatively _universal template parameters_ and specialization can be used to achieve the same effect. **
+__NOTE: Alternatively _universal template parameters_ and specialization can be used to achieve the same effect. __
 
-**NOTE: The nested struct tpl inside and_predicate is necessary just as the `static bool value` was necessary before we got
+__NOTE: The nested struct tpl inside and_predicate is necessary just as the `static bool value` was necessary before we got
 vatiable templates. A template alias would be a nice complement to the variable templates and type alias templates we have for
-values and types. **
+values and types. __
 
 Another possibility that would be very valuable on this level would be a facility to bind types to template parameters to form
 unary predicates from binary predicates (among other things). With this in place we could easily form a predicate to test for a
@@ -83,8 +83,8 @@ which in this case takes us quite far, but as the corresponding value level func
 What we would want is a way to bind template parameters of any kind that occur at any position of the incoming type using the same
 idea as for bind, with placeholders. This seems far from possible, especially if all kinds of template parameters are considered.
 
-** NOTE: With template aliases I think we can somehow implement this, and with universal template parameters it can (probably) be
-done for any template parameter types. **
+__ NOTE: With template aliases I think we can somehow implement this, and with universal template parameters it can (probably) be
+done for any template parameter types. __
 
 
 Support functions for tuple-likes
@@ -98,9 +98,9 @@ compiler magic, simple enough structs.
 Most of these functions are similar to functions found in boost::hana. However, these functions are always concerned with type
 
 
-** NOTE: It is probably so that such structs don't get the tuple_size, tuple_element and get actually implemented, instead they
+__ NOTE: It is probably so that such structs don't get the tuple_size, tuple_element and get actually implemented, instead they
 are useful in structured bindings via another writing in the standard. It may be worth considering changing this to allow
-functionality that builds on the structured binding protocol to work for simple enough structs and C arrays too. **
+functionality that builds on the structured binding protocol to work for simple enough structs and C arrays too. __
 
 Tuple like inspection functions
 -------------------------------
@@ -126,11 +126,11 @@ parameter provide a way to start searching from a certain element. These functio
 such as std::string::find which provides the corresponding functionality (Ok, also as this is how it is implemented). More
 overloads of these functions are introduced later.
 
-** NOTE: If variables template were overloadable we could wrap most of these functions into template variables to achieve more
-consistency with tuple_size_v. **
+__ NOTE: If variables template were overloadable we could wrap most of these functions into template variables to achieve more
+consistency with tuple_size_v. __
 
-** NOTE: If class templates were overloadable the functions themselves could be replaced with class templates to complete the
-consistency with tuple_size. **
+__ NOTE: If class templates were overloadable the functions themselves could be replaced with class templates to complete the
+consistency with tuple_size. __
 
 Tuple element access functions
 ------------------------------
@@ -218,14 +218,14 @@ tuple_arrange appropriately:
 The naming of these could be questioned. Don't they read better if the words were reversed. I think so, but I think the prefix
 tuple being consistent with all the other functions (except get) outweighs this.
 
-** NOTE: With template aliases these options would essentially be the same, as such an alias can sit in for a class template. **
+__ NOTE: With template aliases these options would essentially be the same, as such an alias can sit in for a class template. __
 
-** NOTE: Even with for constexpr it is not possible to implement tuple_arrange in an imperative way for lack of a way to transport
+__ NOTE: Even with for constexpr it is not possible to implement tuple_arrange in an imperative way for lack of a way to transport
 the state between loop "turns". A mutable using T = x springs to mind. I haven't looked into this but it seems reasonable with
 the appropriate restrictions that it can't be assigned to in a way that is not known at compile time. It seems like a logical
 complement to for constexpr though. Similarly, if we wanted to collect the indices to return in a compile time vector, can this be
 done in a constexpr vector although the function is called at runtime. I don't think so, but maybe it should (with appropriate
-restrictions). **
+restrictions). __
 
 ### Flatten
 
@@ -338,13 +338,13 @@ As an alternative to making the value member public it would be possible to make
 which could then be immutable after construction. I don't see a particular advantage to this. The alternative to let named_value
 inherit T was discarded as it prevents T from being anything else than a user defined type.
 
-** NOTE: A proposal to be able to make template parameter names available directly exists. With an opt-in feature that you havee
+__ NOTE: A proposal to be able to make template parameter names available directly exists. With an opt-in feature that you havee
 to state a visbility for a template parameter to be visible this could be feasible, which would simplify this and many other
 templates. There could however be other snags with this that I can't remember at the moment, but I think it was basically that it
-could hide names in bases if it was automatically enabled in a new standard version, so opt-in would be ok. **
+could hide names in bases if it was automatically enabled in a new standard version, so opt-in would be ok. __
 
-** NOTE: An operator.() of any form, for instance my proposed implicit cast operator would allow immutable and invisible access to
-the underlying data without having to remember a leading * or a trailing .value. **
+__ NOTE: An operator.() of any form, for instance my proposed implicit cast operator would allow immutable and invisible access to
+the underlying data without having to remember a leading * or a trailing .value. __
 
 With named_values in a tuple and a predicate to find a value of a certain name we are starting to build a named parameter system.
 A predicate like this is predefined but due to the lack of binding possibilities it gets a bit tricky. First we have to figure out

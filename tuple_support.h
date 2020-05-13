@@ -8,6 +8,14 @@
 
 namespace std {
 
+
+
+// make_ref_tuple ensures that no unnecessary copying takes place. Beware of dangling references if using it.
+template<template<typename...> class RESULT = tuple, typename... Ts> auto make_ref_tuple(Ts&&... ts) 
+{
+    return RESULT<decltype(forward<Ts>(ts))...>(forward<Ts>(ts)...);
+}
+
 // namespace level npos needed as we don't have any class to put it in. The standard should guarantee that all other npos:es are
 // equal to this one.
 constexpr size_t npos = static_cast<size_t>(-1);
@@ -146,7 +154,7 @@ template<template<typename LHS, typename RHS> class PRED, typename R> struct pre
 // Count how many element types E satisfy PRED<E>::value at or after POS
 template<template<typename> class PRED, size_t POS, typename TL> constexpr size_t tuple_count_if()
 {
-    if constexpr (POS == tuple_size<TL>())
+    if constexpr (POS == tuple_size_v<TL>)
         return 0;
     else if constexpr (PRED<decay_t<tuple_element_t<POS, TL>>>::value)
         return tuple_count_if<PRED, POS + 1, TL>() + 1;
@@ -164,10 +172,10 @@ template<template<typename> class PRED, typename TL> constexpr bool tuple_contai
 // Return the index of the first matching element at or after POS
 template<template<typename> class PRED, size_t POS, typename TL> constexpr size_t tuple_find()
 {
-    if constexpr (POS == tuple_size<TL>()) {
+    if constexpr (POS == tuple_size_v<decay_t<TL>>) {
         return npos;
     }
-    else if constexpr (PRED<decay_t<tuple_element_t<POS, TL>>>::value)
+    else if constexpr (PRED<decay_t<tuple_element_t<POS, decay_t<TL>>>>::value)
         return POS;
     else
         return tuple_find<PRED, POS + 1, TL>();
@@ -314,24 +322,25 @@ namespace detail {
     // TLVs is a combination of remaining tuples followed by flattened elements accrued so far. The first NTIX elements are incoming tuples (or non-tuples).
     template<template<typename...> class RESULT, size_t NTIX, size_t EIX, typename TL, typename... TLVs> auto tuple_concat_helper(TL&& first, TLVs&&... rest)
     {
-        if constexpr (is_tuple_like_v<decay_t<TL>>) {
-            if constexpr (EIX == tuple_size_v<decay_t<TL>>) {       // Currently processed TL ends
-                if constexpr (NTIX == 0)                   // All TLs processed. Time to return the rest as a 
-                    return RESULT<decay_t<TL>, decay_t<TLVs>...>{forward<TL>(first), forward<TLVs>(rest)...};
-                else
-                    return tuple_concat_helper<RESULT, NTIX - 1, 0>(forward<TLVs>(rest)...);
-            }
+        if constexpr (NTIX == 0)
+            return RESULT<TL, TLVs...>{forward<TL>(first), forward<TLVs>(rest)...}; // Now even TL is a V
+        else if constexpr (is_tuple_like_v<decay_t<TL>>) {
+            if constexpr (EIX == tuple_size_v<decay_t<TL>>)        // Currently processed TL ends. Don't forward it anymore. Note that this handles empty tuple likes among TLs
+                return tuple_concat_helper<RESULT, NTIX - 1, 0>(forward<TLVs>(rest)...);
             else
                 return tuple_concat_helper<RESULT, NTIX, EIX + 1>(forward<TL>(first), forward<TLVs>(rest)..., get<EIX>(forward<TL>(first)));
         }
-        else {
-            if constexpr (NTIX == 0)  // All TLs processed. Time to return the rest as a 
-                return RESULT<decay_t<TL>, decay_t<TLVs>...>{forward<TL>(first), forward<TLVs>(rest)...};
-            else        // Non-last non-tuple, push it and continue with the next incoming TL
-                return tuple_concat_helper<RESULT, NTIX - 1, 0>(forward<TLVs>(rest)..., forward<TL>(first));
-        }
+        else  // Process a non-tuple, i.e. just move it last.
+            return tuple_concat_helper<RESULT, NTIX - 1, 0>(forward<TLVs>(rest)..., forward<TL>(first));
+    }
+
+    // Overload just to handle the zero argument case. Needed as the main overload requires at least one TL.
+    template<template<typename...> class RESULT, size_t NTIX, size_t EIX> auto tuple_concat_helper() {
+        static_assert(NTIX == 0);
+        return RESULT<>();
     }
 }
+
 
 // tuple_concat concatenates all tuple likes to a long RESULT. If there are non-tuple-likes in tls they are just inserted. This way
 // prepend, append and flatten are implemented in the same function. It does hurt error checking though, which may be a reason to
@@ -377,11 +386,6 @@ template<size_t IX, typename TL> auto tuple_erase(TL&& t)
     return tuple_erase<IX, tuple_traits<decay_t<TL>>::factory::template type>(forward<TL>(t));
 }
 
-
-// make_ref_tuple ensures that no unnecessary copying takes place. Beware of dangling references if using it.
-template<typename... Ts> auto make_ref_tuple(Ts&&... ts) {
-    return tuple<decltype(forward<Ts>(ts))...>(forward<Ts>(ts)...);
-}
 
 
 }   // namespace std
