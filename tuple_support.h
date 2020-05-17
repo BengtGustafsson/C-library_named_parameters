@@ -234,7 +234,7 @@ auto tuple_arrange(TL&& t, Vs&&... vs)
 
         if constexpr (P::next >= SIZE) { // Note: This includes after decrement to -1 thanks to size_t being unsigned.
             if constexpr (P::value)
-                return RESULT<Vs..., tuple_element_t<POS, TLC>>{forward<Vs>(vs)..., get<POS>(t)};
+                return RESULT<Vs..., tuple_element_t<POS, TLC>>{forward<Vs>(vs)..., forward< tuple_element_t<POS, TLC>>(get<POS>(t))};
             else
                 return RESULT<Vs...>{forward<Vs>(vs)...};
         }
@@ -319,6 +319,12 @@ template<typename TL> auto tuple_reverse(TL&& t)
 
 
 namespace detail {
+    // Overload just to handle the zero argument case. Needed as the main overload requires at least one TL.
+    template<template<typename...> class RESULT, size_t NTIX, size_t EIX> auto tuple_concat_helper() {
+        static_assert(NTIX == 0);
+        return RESULT<>();
+    }
+
     // TLVs is a combination of remaining tuples followed by flattened elements accrued so far. The first NTIX elements are incoming tuples (or non-tuples).
     template<template<typename...> class RESULT, size_t NTIX, size_t EIX, typename TL, typename... TLVs> auto tuple_concat_helper(TL&& first, TLVs&&... rest)
     {
@@ -332,12 +338,6 @@ namespace detail {
         }
         else  // Process a non-tuple, i.e. just move it last.
             return tuple_concat_helper<RESULT, NTIX - 1, 0>(forward<TLVs>(rest)..., forward<TL>(first));
-    }
-
-    // Overload just to handle the zero argument case. Needed as the main overload requires at least one TL.
-    template<template<typename...> class RESULT, size_t NTIX, size_t EIX> auto tuple_concat_helper() {
-        static_assert(NTIX == 0);
-        return RESULT<>();
     }
 }
 

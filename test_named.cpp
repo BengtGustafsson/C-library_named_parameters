@@ -13,12 +13,18 @@ std::value_name<third_tag> third;
 inline const char* fourth_tag = "fourth";
 std::value_name<fourth_tag> fourth;
 
-template<size_t IX, typename... Ps> auto test_function(Ps&&... ps)
+struct Point { 
+    Point(int x, int y) : x(x), y(y) {}
+    int x, y; 
+};
+
+template<typename... Ps> auto test_function(Ps&&... ps)
 {
-    auto t = std::make_ref_tuple(std::forward<Ps>(ps)...);
-    auto args = std::bind_parameters(t, second = "Hopp", first = 0);
+    auto t = std::forward_as_tuple(std::forward<Ps>(ps)...);
+    auto args = std::bind_parameters(t, second = "Hopp", third = Point{ 0, 0 }, first = 0);
     const char* name = std::get<0>(args).value;
-  //  int value = std::get<first>(args);
+    int value = std::get<first>(args);
+    auto p = std::get<third>(args);
 }
 
 void test_named()
@@ -28,8 +34,9 @@ void test_named()
     auto x = first = xval;
     auto y = std::move(x);
     
-    std::tuple{ x, y };
-
-    test_function<0>(first=1, second("hej"));
+    test_function();
+    test_function(first = 1);
+    test_function(first = 1, third(3, 4));
+    test_function(first = 1, second("hej"), third(3, 4));
 }
 

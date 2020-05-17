@@ -15,6 +15,20 @@
 
 namespace std {
 
+// Missing trait which just converts arrays and array references to pointers without touching other types.
+template<typename T> struct array_to_pointer {
+    using type = T;
+};
+template<typename T> struct array_to_pointer<T(&)[]> {
+    using type = T*;
+};
+template<typename T, size_t N> struct array_to_pointer<T(&)[N]> {
+    using type = T*;
+};
+
+template<typename T> using array_to_pointer_t = typename array_to_pointer<T>::type;
+
+
 //////////////// named_values and value_name are building blocks for named parameter handling ////////////////
 
 // value_name_tag should be a fixed_string of fixed max length. To make this work with current compilers it is currently replaced by
@@ -46,13 +60,40 @@ public:
     }
 
     // Emplacing constructor.
-    template<typename... Ps> named_value(Ps&&... pars) : value(std::forward<Ps>(pars)...) {}
+    template<typename... Ps> named_value(Ps&&... pars) : value{ std::forward<Ps>(pars)... } {}
 
     T value;
 };
 
 // Deduction guide that selects bool as the type when a value_name is the parameter.
 template<value_name_tag Name> named_value(value_name<Name>&&)->named_value<Name, bool>;
+
+// make_named passes references through if possible, i.e. if sizeof...Ps == 1 and Ps[0] is a subclass of T, else it
+// Returns a named_value with a by value T.
+template<value_name_tag Name, typename T, typename... Ps> auto make_named(Ps&&... ps)
+{
+    using TC = decay_t<T>;
+    if constexpr (sizeof...(Ps) == 1) {
+        if constexpr (is_base_of_v<TC, decay_t<Ps>...>)
+            return named_value<Name, decltype(forward<Ps>(ps))...>(forward<Ps>(ps)...);
+        else
+            return named_value<Name, TC>(forward<Ps>(ps)...);
+    }
+    else
+        return named_value<Name, TC>(forward<Ps>(ps)...);
+}
+
+// make_named_from_tuple passes references through if possible, i.e. if P is a subclass of T, else it
+// Returns a named_value with a by value T, constructed from P or if P is a tuple like its elements.
+template<value_name_tag Name, typename T, typename P> auto make_named_from_tuple(P&& p)
+{
+    using TC = decay_t<T>;
+    if constexpr (is_tuple_like_v<decay_t<P>>)
+        return make_from_tuple<named_value<Name, T>>(forward<P>(p));
+    else
+        return make_named<Name, TC>(forward<P>(p));
+}
+
 
 // Marker type to indicate that default_for was called.
 template<value_name_tag Name, typename T> struct default_for_value : public named_value<Name, T> {
@@ -72,10 +113,10 @@ public:
     // These operators are the main feature of a value_name, allowing it to act as a named parameter. Note that the value is only
     // stored as a reference even if it comes in as a rvalue, which means that the named_value is only valid until the function
     // being called returns.
-    template<typename T> auto operator=(T&& value) const { return named_value<Name, decltype(std::forward<T>(value))>(std::forward<T>(value)); }
-    template<typename T> auto operator()(T&& value) const { return named_value<Name, decltype(std::forward<T>(value))>(std::forward<T>(value)); }
+    template<typename T> auto operator=(T&& value) const { return named_value<Name, array_to_pointer_t<decltype(std::forward<T>(value))>>(std::forward<T>(value)); }
+    template<typename T> auto operator()(T&& value) const { return named_value<Name, array_to_pointer_t<decltype(std::forward<T>(value))>>(std::forward<T>(value)); }
     template<typename T, typename... Ts> auto operator()(T&& value, Ts&&... values) const {  // One regular parameter to exclude the empty parenthesis case.
-        using RET = tuple<decltype(forward<T>(value)), decltype(forward<Ts>(values))...>;
+        using RET = tuple<decltype(forward<T>(value)), array_to_pointer_t<decltype(std::forward<Ts>(value))>...>;
         return named_value<Name, RET>(RET{ forward<T>(value), forward<Ts>(values)... });
     }
 
@@ -220,7 +261,7 @@ template<auto&& ValueName, typename TL> decltype(auto) get(TL&& t)
 {
     constexpr size_t IX = tuple_find<decay_t<decltype(ValueName)>::name, TL>();
     static_assert(IX != npos, "Name not found");
-    return get<IX>(forward<TL>(t)).value;
+    return forward<typename decay_t<tuple_element_t<IX, decay_t<TL>>>::type>(get<IX>(forward<TL>(t)).value);
 }
 
 
@@ -251,48 +292,36 @@ template<value_name_tag Name, typename D, typename TL> decltype(auto) get_or(nam
 }
 
 
-// Missing trait which just converts arrays and array references to pointers without touching other types.
-template<typename T> struct array_to_pointer {
-    using type = T;
-};
-template<typename T> struct array_to_pointer<T(&)[]> {
-    using type = T*;
-};
-template<typename T, size_t N> struct array_to_pointer<T(&)[N]> {
-    using type = T*;
-};
-
-template<typename T> using array_to_pointer_t = typename array_to_pointer<T>::type;
-
 
 namespace detail {
 // Sentinel used when all the Ps are handled, just check that args is empty and then return res
-template<typename A, typename R> auto bind_named_parameters(A&& args, R&& res) {
-        static_assert(tuple_size_v<A> == 0, "Some named arguments were not accepted. See signature of the failing instance to see which");
+template<typename A, typename R> auto bind_named_parameters(A&& args, R res) {
+        static_assert(tuple_size_v<decay_t<A>> == 0, "Some named arguments were not accepted. See signature of the failing instance to see which");
         return res;     // This is always a return by value.
 }
 
 // Match any element in the tuple-like args by name to p and append the result (hit or miss) to res, while removing the
 // matching element from args, if found.
 template<typename A, typename R, typename P, typename... Ps> auto bind_named_parameters(A&& args, R&& res, P&& p, Ps&&... ps) {
-        constexpr size_t IX = tuple_find<P::name, A>();
-        if constexpr (IX != npos) {  // found a value of the correct name.Try to construct the correct P::type from it, preserving the named_value wrapper.
-                auto v = construct_from_elements<P>(get<IX>(forward<A>(args)).value);
-                return bind_named_parameters(tuple_erase<IX>(forward<A>(args)), tuple_concat(res, move(v)), forward<Ps>(ps)...);
-        }
-        else {
-                // If P is a default_for_value we also check for a constructible from condition from any of the unnamed values in args.
-                // Note that this is a special constructible from which takes into account tuples in args where the type in P is
-                // constructible from the tuple elements.
-                using T = decay_t<typename P::type>;
-                size_t DIX = tuple_find<predicate_and<predicate_not<is_named>::template tpl, predicate_bind1st<detail::is_constructible_from_elements, T>::template tpl>::template tpl>(args);
-                if (DIX != npos) {
-                        auto v = construct_from_elements<P>(get<IX>(forward<A>(args)));
-                        return bind_named_parameters(forward<A>(args), tuple_concat(res, move(v)), forward<Ps>(ps)...);
-                }
-                else  // Not found, append default value to res and continue.
-                        return bind_named_parameters(forward<A>(args), tuple_concat(res, forward<P>(p)), forward<Ps>(ps)...);
-        }
+    using PC = decay_t<P>;
+    constexpr size_t IX = tuple_find<PC::name, A>();
+    if constexpr (IX != npos) {  // found a value of the correct name. Try to construct the correct P::type from it, preserving the named_value wrapper.
+        auto v = make_named_from_tuple<PC::name, decay_t<typename PC::type>>(forward<typename decay_t<tuple_element_t<IX, decay_t<A>>>::type>(get<IX>(args).value));
+        return bind_named_parameters(tuple_erase<IX>(forward<A>(args)), tuple_concat(res, move(v)), forward<Ps>(ps)...);
+    }
+    else {
+        // If P is a default_for_value we also check for a constructible from condition from any of the unnamed values in args.
+        // Note that this is a special constructible from which takes into account tuples in args where the type in P is
+        // constructible from the tuple elements.
+        //using T = decay_t<typename PC::type>;
+        //size_t DIX = tuple_find<predicate_and<predicate_not<is_named>::template tpl, predicate_bind1st<detail::is_constructible_from_elements, T>::template tpl>::template tpl, A>();
+        //if (DIX != npos) {
+        //    auto v = make_named<PC::name, T>(forward<tuple_element_t<IX, A>>(get<IX>(args)));
+        //    return bind_named_parameters(forward<A>(args), tuple_concat(res, move(v)), forward<Ps>(ps)...);
+        //}
+        //else  // Not found, append default value to res and continue.
+            return bind_named_parameters(forward<A>(args), tuple_concat(res, forward<P>(p)), forward<Ps>(ps)...);
+    }
 }
 }
 
