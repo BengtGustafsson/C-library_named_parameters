@@ -130,7 +130,7 @@ public:
     // The following methods are used in bind_parameters to indicate different requirements on named arguments matched.
 
     // Optional values are useful for _parameters_ to allow the function to see whether the named argument was present or not.
-    template<typename T> named_value<Name, std::optional<T>> optional() const { return named_value<Name, optional<T>>(nullopt); }
+    template<typename T> named_value<Name, std::optional<T>> optional() const { return named_value<Name, std::optional<T>>(nullopt); }
 
     // Variant values are used when you want to accept different types for a value_name, for instance a size as a Size object or
     // two ints. The version without default parameter automatically adds a std::monostate as the first option which is maybe
@@ -261,7 +261,11 @@ template<auto&& ValueName, typename TL> decltype(auto) get(TL&& t)
 {
     constexpr size_t IX = tuple_find<decay_t<decltype(ValueName)>::name, TL>();
     static_assert(IX != npos, "Name not found");
-    return forward<typename decay_t<tuple_element_t<IX, decay_t<TL>>>::type>(get<IX>(forward<TL>(t)).value);
+    using ET = remove_reference_t<tuple_element_t<IX, decay_t<TL>>>;
+    if constexpr (is_const_v<ET>)
+        return forward<const typename ET::type>(get<IX>(forward<TL>(t)).value);
+    else
+        return forward<typename ET::type>(get<IX>(forward<TL>(t)).value);
 }
 
 
@@ -294,35 +298,35 @@ template<value_name_tag Name, typename D, typename TL> decltype(auto) get_or(nam
 
 
 namespace detail {
-// Sentinel used when all the Ps are handled, just check that args is empty and then return res
-template<typename A, typename R> auto bind_named_parameters(A&& args, R res) {
-        static_assert(tuple_size_v<decay_t<A>> == 0, "Some named arguments were not accepted. See signature of the failing instance to see which");
-        return res;     // This is always a return by value.
-}
+    // Sentinel used when all the Ps are handled, just check that args is empty and then return res
+    template<typename A, typename R> auto bind_named_parameters(A&& args, R res) {
+            static_assert(tuple_size_v<decay_t<A>> == 0, "Some named arguments were not accepted. See signature of the failing instance to see which");
+            return res;     // This is always a return by value.
+    }
 
-// Match any element in the tuple-like args by name to p and append the result (hit or miss) to res, while removing the
-// matching element from args, if found.
-template<typename A, typename R, typename P, typename... Ps> auto bind_named_parameters(A&& args, R&& res, P&& p, Ps&&... ps) {
-    using PC = decay_t<P>;
-    constexpr size_t IX = tuple_find<PC::name, A>();
-    if constexpr (IX != npos) {  // found a value of the correct name. Try to construct the correct P::type from it, preserving the named_value wrapper.
-        auto v = make_named_from_tuple<PC::name, decay_t<typename PC::type>>(forward<typename decay_t<tuple_element_t<IX, decay_t<A>>>::type>(get<IX>(args).value));
-        return bind_named_parameters(tuple_erase<IX>(forward<A>(args)), tuple_concat(res, move(v)), forward<Ps>(ps)...);
+    // Match any element in the tuple-like args by name to p and append the result (hit or miss) to res, while removing the
+    // matching element from args, if found.
+    template<typename A, typename R, typename P, typename... Ps> auto bind_named_parameters(A&& args, R&& res, P&& p, Ps&&... ps) {
+        using PC = decay_t<P>;
+        constexpr size_t IX = tuple_find<PC::name, A>();
+        if constexpr (IX != npos) {  // found a value of the correct name. Try to construct the correct P::type from it, preserving the named_value wrapper.
+            auto v = make_named_from_tuple<PC::name, decay_t<typename PC::type>>(forward<typename decay_t<tuple_element_t<IX, decay_t<A>>>::type>(get<IX>(args).value));
+            return bind_named_parameters(tuple_erase<IX>(forward<A>(args)), tuple_concat(res, move(v)), forward<Ps>(ps)...);
+        }
+        else {
+            // If P is a default_for_value we also check for a constructible from condition from any of the unnamed values in args.
+            // Note that this is a special constructible from which takes into account tuples in args where the type in P is
+            // constructible from the tuple elements.
+            //using T = decay_t<typename PC::type>;
+            //size_t DIX = tuple_find<predicate_and<predicate_not<is_named>::template tpl, predicate_bind1st<detail::is_constructible_from_elements, T>::template tpl>::template tpl, A>();
+            //if (DIX != npos) {
+            //    auto v = make_named<PC::name, T>(forward<tuple_element_t<IX, A>>(get<IX>(args)));
+            //    return bind_named_parameters(forward<A>(args), tuple_concat(res, move(v)), forward<Ps>(ps)...);
+            //}
+            //else  // Not found, append default value to res and continue.
+                return bind_named_parameters(forward<A>(args), tuple_concat(res, forward<P>(p)), forward<Ps>(ps)...);
+        }
     }
-    else {
-        // If P is a default_for_value we also check for a constructible from condition from any of the unnamed values in args.
-        // Note that this is a special constructible from which takes into account tuples in args where the type in P is
-        // constructible from the tuple elements.
-        //using T = decay_t<typename PC::type>;
-        //size_t DIX = tuple_find<predicate_and<predicate_not<is_named>::template tpl, predicate_bind1st<detail::is_constructible_from_elements, T>::template tpl>::template tpl, A>();
-        //if (DIX != npos) {
-        //    auto v = make_named<PC::name, T>(forward<tuple_element_t<IX, A>>(get<IX>(args)));
-        //    return bind_named_parameters(forward<A>(args), tuple_concat(res, move(v)), forward<Ps>(ps)...);
-        //}
-        //else  // Not found, append default value to res and continue.
-            return bind_named_parameters(forward<A>(args), tuple_concat(res, forward<P>(p)), forward<Ps>(ps)...);
-    }
-}
 }
 
 // bind_parameters takes actuals as a tuple as the first parameter and then a list of allowed parameters as the rest of the
@@ -331,6 +335,32 @@ template<typename A, typename... Ps> auto bind_parameters(A&& args, Ps&&... ps)
 {
         return detail::bind_named_parameters(forward<A>(args), tuple<>(), forward<Ps>(ps)...);
 }
+
+
+namespace detail {
+    template<size_t IX, typename A, typename... Ps, typename... Vs> auto call_bind_parameters(A&& args, const tuple<Ps...>& ps, const Vs&... vs)
+    {
+        if constexpr (IX == sizeof...(Ps))
+            return bind_parameters(std::forward<A>(args), vs...);
+        else
+            return call_bind_parameters<IX + 1>(std::forward<A>(args), ps, vs..., get<IX>(ps));
+    }
+}
+
+
+// It is probably more convenient to have an object containing the default values and then just call a bind method with the
+// arguments. This could be a wrapper:
+template<typename... Pars> class parameter_binder {
+public:
+    parameter_binder(Pars&&... pars) : m_parameters(forward<Pars>(pars)...) {}
+    template<typename... Args> auto bind(Args&&... args) {
+        return detail::call_bind_parameters<0>(forward_as_tuple(std::forward<Args>(args)...), m_parameters);
+    }
+
+private:
+    tuple<Pars...> m_parameters;
+};
+
 
 
 }   // namespace std

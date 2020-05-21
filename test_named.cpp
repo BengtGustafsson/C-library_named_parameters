@@ -20,10 +20,15 @@ struct Point {
 
 template<typename... Ps> auto test_function(Ps&&... ps)
 {
-    auto t = std::forward_as_tuple(std::forward<Ps>(ps)...);
-    auto args = std::bind_parameters(t, second = "Hopp", third = Point{ 0, 0 }, first = 0);
-    const char* name = std::get<0>(args).value;
-    int value = std::get<first>(args);
+//    auto t = std::forward_as_tuple(std::forward<Ps>(ps)...);
+//    auto args = std::bind_parameters(t, second.variant<std::string, Point>("Hopp"), third = Point{ 0, 0 }, first.optional<int>());
+    std::parameter_binder binder(second.variant<std::string, Point>("Hopp"), third = Point{ 0, 0 }, first.optional<int>());
+    auto args = binder.bind(std::forward<Ps>(ps)...);
+    auto var = std::get<0>(args).value;
+    auto name = get<std::string>(var);
+    int value = 0;
+    if (std::get<first>(args))
+        value = *std::get<first>(args);
     auto p = std::get<third>(args);
 }
 

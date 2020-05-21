@@ -337,7 +337,7 @@ namespace detail {
                 return tuple_concat_helper<RESULT, NTIX, EIX + 1>(forward<TL>(first), forward<TLVs>(rest)..., get<EIX>(forward<TL>(first)));
         }
         else  // Process a non-tuple, i.e. just move it last.
-            return tuple_concat_helper<RESULT, NTIX - 1, 0>(forward<TLVs>(rest)..., forward<TL>(first));
+            return tuple_concat_helper<RESULT, NTIX - 1, 0>(forward<TLVs>(rest)..., TL(std::forward<TL>(first)));
     }
 }
 
