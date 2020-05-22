@@ -8,17 +8,27 @@
 
 namespace std {
 
-
-
-// make_ref_tuple ensures that no unnecessary copying takes place. Beware of dangling references if using it.
-template<template<typename...> class RESULT = tuple, typename... Ts> auto make_ref_tuple(Ts&&... ts) 
-{
-    return RESULT<decltype(forward<Ts>(ts))...>(forward<Ts>(ts)...);
-}
-
 // namespace level npos needed as we don't have any class to put it in. The standard should guarantee that all other npos:es are
 // equal to this one.
 constexpr size_t npos = static_cast<size_t>(-1);
+
+
+//////////////// Simple type list class ////////////////
+
+template<typename... Ts> struct type_list {};
+
+template<typename... Ts> struct tuple_size<type_list<Ts...>> {
+    static constexpr size_t value = sizeof...(Ts);
+};
+
+template<typename T, typename... Ts> struct tuple_element<0, type_list<T, Ts...>> {
+    using type = T;
+};
+
+template<size_t IX, typename T, typename... Ts> struct tuple_element<IX, type_list<T, Ts...>> {
+        using type = typename tuple_element<IX - 1, type_list<Ts...>>::type;
+};
+
 
 
 //////////////// New trait to be able to instantiate the same template for another set of template parameters ////////////////
@@ -38,6 +48,15 @@ struct tuple_factory {
 template<typename... Ts> struct tuple_traits<tuple<Ts...>> {
     constexpr static bool specialized = true;
     using factory = tuple_factory;
+};
+
+struct typelist_factory {
+        template<typename... Ts> using type = type_list<Ts...>;
+};
+
+template<typename... Ts> struct tuple_traits<type_list<Ts...>> {
+        constexpr static bool specialized = true;
+        using factory = typelist_factory;
 };
 
 struct array_factory {
@@ -154,7 +173,7 @@ template<template<typename LHS, typename RHS> class PRED, typename R> struct pre
 // Count how many element types E satisfy PRED<E>::value at or after POS
 template<template<typename> class PRED, size_t POS, typename TL> constexpr size_t tuple_count_if()
 {
-    if constexpr (POS == tuple_size_v<TL>)
+    if constexpr (POS == tuple_size_v<decay_t<TL>>)
         return 0;
     else if constexpr (PRED<decay_t<tuple_element_t<POS, TL>>>::value)
         return tuple_count_if<PRED, POS + 1, TL>() + 1;
@@ -319,39 +338,53 @@ template<typename TL> auto tuple_reverse(TL&& t)
 
 
 namespace detail {
-    // Overload just to handle the zero argument case. Needed as the main overload requires at least one TL.
-    template<template<typename...> class RESULT, size_t NTIX, size_t EIX> auto tuple_concat_helper() {
-        static_assert(NTIX == 0);
+    template<typename F, typename S> struct typelist_append;
+    template<typename... Ts, typename T> struct typelist_append<type_list<Ts...>, T> {
+        using type = type_list<Ts..., T>;
+    };
+    template<typename F, typename S> using typelist_append_t = typename typelist_append<F, S>::type;
+
+    template<template<typename...> class RESULT, typename... Ts, typename... Vs> auto result_from_typelist(type_list<Ts...>, Vs&&... vs)
+    {
+        return RESULT<Ts...>{forward<Vs>(vs)...};
+    }
+
+    // This sentinel is used only when there are one or more empty tuples being concatenated.
+    template<template<typename...> class RESULT, size_t NTIX, size_t EIX, typename RT> auto tuple_concat_helper()
+    {
+        static_assert(tuple_size_v<RT> == 0);
         return RESULT<>();
     }
 
+
     // TLVs is a combination of remaining tuples followed by flattened elements accrued so far. The first NTIX elements are incoming tuples (or non-tuples).
-    template<template<typename...> class RESULT, size_t NTIX, size_t EIX, typename TL, typename... TLVs> auto tuple_concat_helper(TL&& first, TLVs&&... rest)
+    template<template<typename...> class RESULT, size_t NTIX, size_t EIX, typename RT, typename TL, typename... TLVs> auto tuple_concat_helper(TL&& first, TLVs&&... rest)
     {
         if constexpr (NTIX == 0)
-            return RESULT<TL, TLVs...>{forward<TL>(first), forward<TLVs>(rest)...}; // Now even TL is a V
+            return result_from_typelist<RESULT>(RT(), forward<TL>(first), forward<TLVs>(rest)...);
         else if constexpr (is_tuple_like_v<decay_t<TL>>) {
-            if constexpr (EIX == tuple_size_v<decay_t<TL>>)        // Currently processed TL ends. Don't forward it anymore. Note that this handles empty tuple likes among TLs
-                return tuple_concat_helper<RESULT, NTIX - 1, 0>(forward<TLVs>(rest)...);
+            if constexpr (EIX == tuple_size_v<decay_t<TL>>)        // Currently processed TL tuple has ended. All its elements already in rest, so just drop TL.
+                return tuple_concat_helper<RESULT, NTIX - 1, 0, RT>(forward<TLVs>(rest)...);
             else
-                return tuple_concat_helper<RESULT, NTIX, EIX + 1>(forward<TL>(first), forward<TLVs>(rest)..., get<EIX>(forward<TL>(first)));
+                return tuple_concat_helper<RESULT, NTIX, EIX + 1, typelist_append_t<RT, tuple_element_t<EIX, decay_t<TL>>>>(forward<TL>(first), forward<TLVs>(rest)..., get<EIX>(forward<TL>(first)));
         }
-        else  // Process a non-tuple, i.e. just move it last.
-            return tuple_concat_helper<RESULT, NTIX - 1, 0>(forward<TLVs>(rest)..., TL(std::forward<TL>(first)));
+        else
+            // Note: Don't convert back to rvalue-reference in the type list, non-tuple rvalues sent into tuple_concat will result
+            // in by value elements in the returned tuple.
+            return tuple_concat_helper<RESULT, NTIX - 1, 0, typelist_append_t<RT, TL>>(forward<TLVs>(rest)..., forward<TL>(first));
     }
 }
-
 
 // tuple_concat concatenates all tuple likes to a long RESULT. If there are non-tuple-likes in tls they are just inserted. This way
 // prepend, append and flatten are implemented in the same function. It does hurt error checking though, which may be a reason to
 // reinstate the different names.
 template<template<typename...> class RESULT, typename... TLs> auto tuple_concat(TLs&&... tls)
 {
-    return detail::tuple_concat_helper<RESULT, sizeof...(TLs), 0>(forward<TLs>(tls)...);
+        return detail::tuple_concat_helper<RESULT, sizeof...(TLs), 0, type_list<>>(forward<TLs>(tls)...);
 }
 template<typename... TLs> auto tuple_concat(TLs&&... tls)
 {
-    return tuple_concat<common_tuple_traits<decay_t<TLs>...>::factory::template type>(forward<TLs>(tls)...);
+        return tuple_concat<common_tuple_traits<decay_t<TLs>...>::factory::template type>(forward<TLs>(tls)...);
 }
 
 // tuple_insert allows inserting an element or a tuple-like into another tuple-like at a certain position. If the inserted thing is

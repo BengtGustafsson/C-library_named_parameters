@@ -49,8 +49,8 @@ public:
 
     // The ctor from non-const reference is needed to avoid the template ctor from taking over. And when this is defined
     // the other copy constructors must also be manually defined.
-    named_value(const named_value& src) : value(src.value) {}
-    named_value(named_value& src) : value(src.value) {}
+    named_value(const named_value& src) : value(forward<const decltype(src.value)>(src.value)) {}
+    named_value(named_value& src) : value(forward<decltype(src.value)>(src.value)) {}
     named_value(named_value&&) = default;
 
     // Constructor from a value_name of same name, only available if T is bool
